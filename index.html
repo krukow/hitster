@@ -96,7 +96,14 @@ const CLIP = 30;
 const CIRC = 622;
 const $ = id => document.getElementById(id);
 const audio = $('audio'), prog = $('prog'), glyph = $('glyph'), count = $('count');
-let track = null, timer = null, manifest = null;
+let track = null, timer = null, manifest = null, manifestDeck = null;
+
+function currentDeck() {
+  return new URLSearchParams(location.search).get('d') || '';
+}
+function manifestUrl(deck) {
+  return deck ? 'tracks-' + deck + '.json' : 'tracks.json';
+}
 
 function setProgress(frac) { prog.style.strokeDashoffset = CIRC * (1 - frac); }
 
@@ -118,8 +125,12 @@ async function boot() {
   track = null;
   const id = decodeURIComponent(location.hash.replace(/^#/, '')).trim();
   if (!id) { $('hint').textContent = 'No track in this QR code.'; return; }
+  const deck = currentDeck();
   try {
-    if (!manifest) manifest = await (await fetch('tracks.json', { cache: 'force-cache' })).json();
+    if (!manifest || manifestDeck !== deck) {
+      manifest = await (await fetch(manifestUrl(deck), { cache: 'force-cache' })).json();
+      manifestDeck = deck;
+    }
     track = manifest[id];
   } catch (e) { track = null; }
   if (!track || !track.p) { $('hint').textContent = 'Track not found.'; return; }
@@ -189,12 +200,15 @@ function loadJsQR() {
   });
 }
 
-function extractId(text) {
-  let id = null;
-  try { const u = new URL(text, location.href); if (u.hash) id = decodeURIComponent(u.hash.slice(1)).trim(); }
-  catch (e) {}
+function extractTarget(text) {
+  let id = null, deck = '';
+  try {
+    const u = new URL(text, location.href);
+    if (u.hash) id = decodeURIComponent(u.hash.slice(1)).trim();
+    deck = new URLSearchParams(u.search).get('d') || '';
+  } catch (e) {}
   if (!id && /^[0-9]+$/.test((text || '').trim())) id = text.trim();
-  return id;
+  return id ? { id, deck } : null;
 }
 
 async function openScanner() {
@@ -240,11 +254,16 @@ async function scanTick() {
     }
   } catch (e) {}
   if (value) {
-    const id = extractId(value);
-    if (id) {
+    const t = extractTarget(value);
+    if (t) {
       closeScanner();
-      if (location.hash.replace(/^#/, '') === id) boot();
-      else location.hash = '#' + id;
+      if (t.deck !== currentDeck()) {
+        location.href = location.pathname + (t.deck ? '?d=' + encodeURIComponent(t.deck) : '') + '#' + t.id;
+      } else if (location.hash.replace(/^#/, '') === t.id) {
+        boot();
+      } else {
+        location.hash = '#' + t.id;
+      }
       return;
     }
   }
