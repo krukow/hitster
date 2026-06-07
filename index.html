@@ -43,6 +43,7 @@
   .answer .artist { font-size: 22px; font-weight: 700; }
   .answer .year { font-size: 54px; font-weight: 800; color: var(--accent); margin: 6px 0; }
   .answer .title { font-size: 18px; color: #c7c7d1; font-style: italic; }
+  .answer .album { font-size: 14px; color: #7f7f8a; margin-top: 4px; }
   .hidden { display: none !important; }
   audio { display: none; }
 </style>
@@ -127,7 +128,8 @@ $('reveal').addEventListener('click', () => {
   const a = $('answer');
   a.innerHTML = '<div class="artist">' + esc(track.a) + '</div>' +
                 '<div class="year">' + esc(track.y) + '</div>' +
-                '<div class="title">' + esc(track.t) + '</div>';
+                '<div class="title">' + esc(track.t) + '</div>' +
+                (track.l ? '<div class="album">' + esc(track.l) + '</div>' : '');
   a.classList.add('show');
 });
 audio.addEventListener('ended', stop);
