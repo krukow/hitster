@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b10">
+<title>Hitster</title>
+<style>
+  :root { --accent: #1db954; --bg: #0b0b10; --fg: #f5f5f7; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg); font-family: -apple-system, system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100dvh; padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+    text-align: center; user-select: none;
+  }
+  .stage { display: flex; flex-direction: column; align-items: center; gap: 28px; }
+  .btn {
+    position: relative; width: 220px; height: 220px; border-radius: 50%;
+    border: none; background: transparent; cursor: pointer; padding: 0;
+  }
+  .ring { position: absolute; inset: 0; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 8; }
+  .ring .track { stroke: #2a2a33; }
+  .ring .prog { stroke: var(--accent); stroke-linecap: round;
+    stroke-dasharray: 622; stroke-dashoffset: 622; transition: stroke-dashoffset .2s linear; }
+  .glyph {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 84px; color: var(--fg);
+  }
+  .count { position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 64px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .hint { font-size: 17px; color: #a0a0aa; letter-spacing: .3px; min-height: 22px; }
+  .actions { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .pill {
+    border: 1px solid #33333d; background: #16161d; color: var(--fg);
+    padding: 12px 22px; border-radius: 999px; font-size: 16px; cursor: pointer;
+  }
+  .pill:active { background: #22222c; }
+  .answer { opacity: 0; transition: opacity .35s ease; max-width: 340px; }
+  .answer.show { opacity: 1; }
+  .answer .artist { font-size: 22px; font-weight: 700; }
+  .answer .year { font-size: 54px; font-weight: 800; color: var(--accent); margin: 6px 0; }
+  .answer .title { font-size: 18px; color: #c7c7d1; font-style: italic; }
+  .hidden { display: none !important; }
+  audio { display: none; }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <button class="btn" id="btn" aria-label="Play">
+      <svg class="ring" viewBox="0 0 220 220">
+        <circle class="track" cx="110" cy="110" r="99"></circle>
+        <circle class="prog" id="prog" cx="110" cy="110" r="99"></circle>
+      </svg>
+      <div class="glyph" id="glyph">&#9654;</div>
+      <div class="count hidden" id="count"></div>
+    </button>
+    <div class="hint" id="hint">Tap to play</div>
+    <div class="actions hidden" id="actions">
+      <button class="pill" id="replay">&#8635; Replay</button>
+      <button class="pill" id="reveal">Reveal answer</button>
+    </div>
+    <div class="answer" id="answer" aria-live="polite"></div>
+  </div>
+  <audio id="audio" preload="auto" playsinline></audio>
+<script>
+const CLIP = 30;
+const CIRC = 622;
+const $ = id => document.getElementById(id);
+const audio = $('audio'), prog = $('prog'), glyph = $('glyph'), count = $('count');
+let track = null, timer = null;
+
+function setProgress(frac) { prog.style.strokeDashoffset = CIRC * (1 - frac); }
+
+async function boot() {
+  const id = decodeURIComponent(location.hash.replace(/^#/, '')).trim();
+  if (!id) { $('hint').textContent = 'No track in this QR code.'; return; }
+  try {
+    const data = await (await fetch('tracks.json', { cache: 'force-cache' })).json();
+    track = data[id];
+  } catch (e) { track = null; }
+  if (!track || !track.p) { $('hint').textContent = 'Track not found.'; return; }
+  audio.src = track.p;
+}
+
+function startCountdown() {
+  const start = performance.now();
+  cancelAnimationFrame(timer);
+  const tick = now => {
+    const elapsed = (now - start) / 1000;
+    const remain = Math.max(0, CLIP - elapsed);
+    count.textContent = Math.ceil(remain);
+    setProgress(Math.min(1, elapsed / CLIP));
+    if (elapsed >= CLIP) { stop(); return; }
+    timer = requestAnimationFrame(tick);
+  };
+  timer = requestAnimationFrame(tick);
+}
+
+function play() {
+  if (!track) return;
+  audio.currentTime = 0;
+  audio.play().then(() => {
+    glyph.classList.add('hidden');
+    count.classList.remove('hidden');
+    $('hint').textContent = 'Listening\u2026';
+    $('actions').classList.add('hidden');
+    startCountdown();
+  }).catch(() => { $('hint').textContent = 'Tap again to play'; });
+}
+
+function stop() {
+  cancelAnimationFrame(timer);
+  audio.pause();
+  setProgress(0);
+  count.classList.add('hidden');
+  glyph.classList.remove('hidden');
+  $('hint').textContent = 'Guess the year, then flip the card';
+  $('actions').classList.remove('hidden');
+}
+
+$('btn').addEventListener('click', () => { if (audio.paused) play(); else stop(); });
+$('replay').addEventListener('click', play);
+$('reveal').addEventListener('click', () => {
+  const a = $('answer');
+  a.innerHTML = '<div class="artist">' + esc(track.a) + '</div>' +
+                '<div class="year">' + esc(track.y) + '</div>' +
+                '<div class="title">' + esc(track.t) + '</div>';
+  a.classList.add('show');
+});
+audio.addEventListener('ended', stop);
+function esc(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+boot();
+</script>
+</body>
+</html>
