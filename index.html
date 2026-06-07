@@ -71,16 +71,31 @@ const CLIP = 30;
 const CIRC = 622;
 const $ = id => document.getElementById(id);
 const audio = $('audio'), prog = $('prog'), glyph = $('glyph'), count = $('count');
-let track = null, timer = null;
+let track = null, timer = null, manifest = null;
 
 function setProgress(frac) { prog.style.strokeDashoffset = CIRC * (1 - frac); }
 
+function resetUI() {
+  cancelAnimationFrame(timer);
+  audio.pause();
+  setProgress(0);
+  count.classList.add('hidden');
+  glyph.classList.remove('hidden');
+  $('actions').classList.add('hidden');
+  const a = $('answer');
+  a.classList.remove('show');
+  a.innerHTML = '';
+  $('hint').textContent = 'Tap to play';
+}
+
 async function boot() {
+  resetUI();
+  track = null;
   const id = decodeURIComponent(location.hash.replace(/^#/, '')).trim();
   if (!id) { $('hint').textContent = 'No track in this QR code.'; return; }
   try {
-    const data = await (await fetch('tracks.json', { cache: 'force-cache' })).json();
-    track = data[id];
+    if (!manifest) manifest = await (await fetch('tracks.json', { cache: 'force-cache' })).json();
+    track = manifest[id];
   } catch (e) { track = null; }
   if (!track || !track.p) { $('hint').textContent = 'Track not found.'; return; }
   audio.src = track.p;
@@ -134,6 +149,7 @@ $('reveal').addEventListener('click', () => {
 });
 audio.addEventListener('ended', stop);
 function esc(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+window.addEventListener('hashchange', boot);
 boot();
 </script>
 </body>
