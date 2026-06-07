@@ -44,6 +44,23 @@
   .answer .year { font-size: 54px; font-weight: 800; color: var(--accent); margin: 6px 0; }
   .answer .title { font-size: 18px; color: #c7c7d1; font-style: italic; }
   .answer .album { font-size: 14px; color: #7f7f8a; margin-top: 4px; }
+  .next {
+    margin-top: 10px; background: var(--accent); border: none; color: #06210f;
+    font-weight: 700; padding: 13px 30px; border-radius: 999px; font-size: 17px; cursor: pointer;
+  }
+  .next:active { filter: brightness(0.92); }
+  #scanner {
+    position: fixed; inset: 0; background: #000; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #scanner video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #scanner .frame {
+    position: relative; z-index: 1; width: 70vw; max-width: 300px; aspect-ratio: 1;
+    border: 3px solid #fff; border-radius: 18px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.5);
+  }
+  #scanner .shint { position: absolute; top: 12%; z-index: 1; color: #fff; font-size: 17px;
+    text-shadow: 0 1px 3px #000; }
+  #scanner .cancel { position: absolute; bottom: 9%; z-index: 1; }
   .hidden { display: none !important; }
   audio { display: none; }
 </style>
@@ -64,7 +81,15 @@
       <button class="pill" id="reveal">Reveal answer</button>
     </div>
     <div class="answer" id="answer" aria-live="polite"></div>
+    <button class="next" id="next">Next &#9654;</button>
   </div>
+  <div id="scanner" class="hidden">
+    <video id="cam" playsinline muted></video>
+    <div class="shint">Point at the next card</div>
+    <div class="frame"></div>
+    <button class="pill cancel" id="cancel">Cancel</button>
+  </div>
+  <canvas id="cv" class="hidden"></canvas>
   <audio id="audio" preload="auto" playsinline></audio>
 <script>
 const CLIP = 30;
@@ -149,6 +174,86 @@ $('reveal').addEventListener('click', () => {
 });
 audio.addEventListener('ended', stop);
 function esc(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ---- in-page "Next" scanner ----
+let stream = null, scanning = false;
+const detector = ('BarcodeDetector' in window) ? new window.BarcodeDetector({ formats: ['qr_code'] }) : null;
+
+function loadJsQR() {
+  return new Promise((res, rej) => {
+    if (window.jsQR) return res();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+    s.onload = () => res(); s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+function extractId(text) {
+  let id = null;
+  try { const u = new URL(text, location.href); if (u.hash) id = decodeURIComponent(u.hash.slice(1)).trim(); }
+  catch (e) {}
+  if (!id && /^[0-9]+$/.test((text || '').trim())) id = text.trim();
+  return id;
+}
+
+async function openScanner() {
+  audio.pause();
+  $('scanner').classList.remove('hidden');
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  } catch (e) {
+    $('scanner').classList.add('hidden');
+    $('hint').textContent = 'Camera blocked \u2014 scan with your phone camera instead';
+    return;
+  }
+  const cam = $('cam');
+  cam.srcObject = stream;
+  await cam.play().catch(() => {});
+  if (!detector) { try { await loadJsQR(); } catch (e) {} }
+  scanning = true;
+  requestAnimationFrame(scanTick);
+}
+
+function closeScanner() {
+  scanning = false;
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  $('scanner').classList.add('hidden');
+}
+
+async function scanTick() {
+  if (!scanning) return;
+  const cam = $('cam');
+  let value = null;
+  try {
+    if (detector) {
+      const codes = await detector.detect(cam);
+      if (codes && codes.length) value = codes[0].rawValue;
+    } else if (window.jsQR && cam.videoWidth) {
+      const cv = $('cv');
+      cv.width = cam.videoWidth; cv.height = cam.videoHeight;
+      const g = cv.getContext('2d');
+      g.drawImage(cam, 0, 0, cv.width, cv.height);
+      const img = g.getImageData(0, 0, cv.width, cv.height);
+      const r = window.jsQR(img.data, cv.width, cv.height);
+      if (r) value = r.data;
+    }
+  } catch (e) {}
+  if (value) {
+    const id = extractId(value);
+    if (id) {
+      closeScanner();
+      if (location.hash.replace(/^#/, '') === id) boot();
+      else location.hash = '#' + id;
+      return;
+    }
+  }
+  requestAnimationFrame(scanTick);
+}
+
+$('next').addEventListener('click', openScanner);
+$('cancel').addEventListener('click', closeScanner);
+
 window.addEventListener('hashchange', boot);
 boot();
 </script>
